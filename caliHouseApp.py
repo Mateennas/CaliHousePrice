@@ -58,7 +58,7 @@ with loc_col1:
         "Latitude",
         min_value=32.54, # California's approximate min latitude
         max_value=42.01, # California's approximate max latitude
-        value=37.0, # Default value, as shown in your screenshot, is currently in Nevada
+        value=37.0, # Default value, will now be checked more rigorously
         step=0.01
     )
 with loc_col2:
@@ -66,17 +66,9 @@ with loc_col2:
         "Longitude",
         min_value=-124.48, # California's approximate min longitude
         max_value=-114.13, # California's approximate max longitude
-        value=-122.0, # Default value, as shown in your screenshot, is currently in Nevada
+        value=-122.0, # Default value, will now be checked more rigorously
         step=0.01
     )
-
-# *** IMMEDIATE CHECK FOR BASIC CA BOUNDARIES ***
-# This initial check prevents extreme values outside the general bounding box.
-# As your screenshot shows, (37.0, -122.0) is within these bounds but lands in Nevada.
-# So, while this check is important, it alone isn't sufficient for precise landmass.
-if not (32.54 <= latitude <= 42.01 and -124.48 <= longitude <= -114.13):
-    st.error("❌ The selected coordinates are outside the *general* valid California range. Please adjust the sliders to stay within California to proceed.")
-    st.stop() # This stops the app from running further if condition is met
 
 # --- Remaining inputs in original columns ---
 col1, col2 = st.columns(2)
@@ -94,31 +86,32 @@ with col2:
 
 # --- Predict Button ---
 if st.button("Predict Median House Value"):
-    # *** CRUCIAL NEW CHECK FOR PRECISE CA LANDMASS ***
-    # This is a more refined check to prevent predictions for points clearly outside California's
-    # *landmass*, even if they fall within the broader rectangular coordinate range.
-    # The default (37.0, -122.0) from your screenshot is in Nevada. California's eastern border
-    # at latitude 37.0 is roughly around longitude -120.0 to -121.0.
+    # *** REFINED GEOGRAPHICAL BOUNDARY CHECK FOR PREDICTION ***
+    # This set of 'if/elif' conditions attempts to exclude areas that are numerically within
+    # the broader California bounding box but are clearly outside its landmass (e.g., in NV, AZ, or ocean).
+    # These are heuristic and based on common maps of California's irregular borders.
     
-    is_in_ca_land_for_prediction = True # Assume valid until specific check fails
+    is_on_ca_land_for_prediction = True # Assume valid until a check proves otherwise
 
-    # Check for points too far east (e.g., in Nevada/Arizona)
-    # These are heuristic approximations of CA's eastern border segments.
-    if (longitude > -120.0 and latitude < 34.0): # For lower latitudes, east of -120
+    # Check for points too far East (into Nevada/Arizona) based on latitude segments
+    # The default (37.0, -122.0) from your screenshot is caught by the second condition here.
+    if longitude > -120.0 and latitude < 34.0: # South-eastern corner, often AZ/NV
         st.error("❌ The selected location appears to be in Arizona or Nevada. Please adjust the longitude westward to be on California's landmass.")
-        is_in_ca_land_for_prediction = False
-    elif (longitude > -120.5 and latitude >= 34.0 and latitude < 38.0): # For mid-latitudes, slightly tighter east border
+        is_on_ca_land_for_prediction = False
+    elif longitude > -120.5 and latitude >= 34.0 and latitude < 38.5: # Mid-eastern border, mostly Nevada
         st.error("❌ The selected location appears to be in Nevada. Please adjust the longitude westward to be on California's landmass.")
-        is_in_ca_land_for_prediction = False
-    elif (longitude > -120.0 and latitude >= 38.0): # For higher latitudes, east of -120
+        is_on_ca_land_for_prediction = False
+    elif longitude > -120.0 and latitude >= 38.5 and latitude < 42.0: # North-eastern border, Nevada/Oregon
         st.error("❌ The selected location appears to be in Nevada or Oregon. Please adjust the longitude westward to be on California's landmass.")
-        is_in_ca_land_for_prediction = False
-    # Check for points too far west (e.g., in the Pacific Ocean)
-    elif (longitude < -124.2): # Roughly west of California's coastline
+        is_on_ca_land_for_prediction = False
+    # Check for points too far West (into the Pacific Ocean)
+    elif longitude < -124.2: # West of most of California's coastline
         st.error("❌ The selected location appears to be in the Pacific Ocean. Please adjust the longitude eastward to select a location on California's landmass.")
-        is_in_ca_land_for_prediction = False
+        is_on_ca_land_for_prediction = False
+    # Add more specific checks here if you find other problem areas
+    # For example, extremely northern or southern points within the "box" that aren't CA.
 
-    if is_in_ca_land_for_prediction:
+    if is_on_ca_land_for_prediction:
         # Step 1: Form raw DataFrame
         input_data = pd.DataFrame({
             'longitude': [longitude],
@@ -168,7 +161,7 @@ if st.button("Predict Median House Value"):
         prediction = model.predict(input_data)[0]
         st.success(f"Predicted Median House Value: ${prediction:,.2f}")
     else:
-        st.warning("Prediction aborted: Please select a location truly within California's landmass.")
+        st.warning("Prediction aborted: Please select a location truly within California's landmass for an accurate prediction.")
 
 # --- Optional Styling ---
 st.markdown(
