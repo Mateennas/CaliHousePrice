@@ -25,7 +25,7 @@ if not os.path.exists(model_path):
 
 # Load model and expected columns with caching
 @st.cache_resource
-def load_model_and_features():
+def load_resources():
     model = joblib.load(model_path)
     model_features = joblib.load('model_features.joblib') # feature names used during training
     # IMPORTANT: If your model was trained on SCALED data, you MUST load your scaler here too!
@@ -38,8 +38,8 @@ def load_model_and_features():
     # return model, model_features, scaling_params # If you also load scaling_params
     return model, model_features
 
-model, model_features = load_model_and_features()
-# model, model_features, scaling_params = load_model_and_features() # If you load scaling_params
+model, model_features = load_resources()
+# model, model_features, scaling_params = load_resources() # If you load scaling_params
 
 # --- Streamlit app title ---
 st.title('🏡 California Housing Price Prediction')
@@ -50,24 +50,37 @@ ocean_proximity_options = ['<1H OCEAN', 'INLAND', 'ISLAND', 'NEAR BAY', 'NEAR OC
 # --- User Inputs ---
 st.header("Enter Block Group Details:")
 
+# Using columns to put Lat/Lon sliders side-by-side for a combined feel
+loc_col1, loc_col2 = st.columns(2)
+
+with loc_col1:
+    # FIX: Using two separate sliders for Latitude and Longitude
+    # This is the standard and supported way to get two distinct numerical inputs
+    latitude = st.slider(
+        "Latitude",
+        min_value=32.54, # California's approximate min latitude
+        max_value=42.01, # California's approximate max latitude
+        value=37.0,
+        step=0.01
+    )
+with loc_col2:
+    longitude = st.slider(
+        "Longitude",
+        min_value=-124.48, # California's approximate min longitude
+        max_value=-114.13, # California's approximate max longitude
+        value=-122.0,
+        step=0.01
+    )
+
+# *** ENFORCE CALIFORNIA ONLY (using the now-defined latitude and longitude) ***
+if not (32.54 <= latitude <= 42.01 and -124.48 <= longitude <= -114.13):
+    st.error("❌ The selected coordinates are outside the valid California range. Please adjust the sliders to stay within California to proceed.")
+    st.stop() # This stops the app from running further if condition is met
+
+# Remaining inputs in original columns
 col1, col2 = st.columns(2)
 
 with col1:
-    # *** FIX FOR StreamlitAPIException and making it the ONLY lat/lon slider ***
-    lat_lon = st.slider(
-        "Select (Latitude, Longitude)",
-        min_value=(32.54, -124.48), # California's approx min lat/lon
-        max_value=(42.01, -114.13), # California's approx max lat/lon
-        value=(37.0, -122.0),
-        step=0.01 # FIX: Changed step to a single float value (not a tuple)
-    )
-    latitude, longitude = lat_lon
-
-    # *** ENFORCE CALIFORNIA ONLY ***
-    if not (32.54 <= latitude <= 42.01 and -124.48 <= longitude <= -114.13):
-        st.error("❌ The selected coordinates are outside the valid California range. Please adjust the slider to stay within California to proceed.")
-        st.stop() # This stops the app from running further if condition is met
-
     housing_median_age = st.slider("Housing Median Age", 1, 52, 30)
     median_income = st.slider("Median Income (in tens of thousands)", 0.5, 15.0, 5.0, step=0.1)
 
@@ -82,8 +95,8 @@ with col2:
 if st.button("Predict Median House Value"):
     # Step 1: Form raw DataFrame
     input_data = pd.DataFrame({
-        'longitude': [longitude],
-        'latitude': [latitude],
+        'longitude': [longitude], # Use the corrected longitude variable
+        'latitude': [latitude],   # Use the corrected latitude variable
         'housing_median_age': [housing_median_age],
         'total_rooms': [total_rooms],
         'total_bedrooms': [total_bedrooms],
@@ -124,6 +137,7 @@ if st.button("Predict Median House Value"):
     # else:
     #    st.warning("Scaling was not applied. Ensure your model was trained on unscaled data or load the scaler.")
 
+
     # Step 6: Predict
     prediction = model.predict(input_data)[0]
     st.success(f"Predicted Median House Value: ${prediction:,.2f}")
@@ -152,12 +166,12 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --- California Housing Location Viewer (uses the latitude, longitude from the single slider) ---
+# --- California Housing Location Viewer ---
 st.title("California Housing Location Viewer") # This title is fine as a separate section.
 st.markdown("### 🎯 Chosen Coordinates") # Refers to the coordinates selected above
 
 # --- Create DataFrame for Map ---
-# Uses the 'latitude' and 'longitude' variables obtained from the *single* lat_lon slider
+# Uses the 'latitude' and 'longitude' variables obtained from the *new* separate sliders
 map_df = pd.DataFrame({'lat': [latitude], 'lon': [longitude]})
 
 # --- Display Map ---
