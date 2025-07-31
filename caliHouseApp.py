@@ -58,7 +58,7 @@ with loc_col1:
         "Latitude",
         min_value=32.54, # California's approximate min latitude
         max_value=42.01, # California's approximate max latitude
-        value=37.0,
+        value=37.0, # This default will be caught by the new checks if not adjusted
         step=0.01
     )
 with loc_col2:
@@ -66,14 +66,15 @@ with loc_col2:
         "Longitude",
         min_value=-124.48, # California's approximate min longitude
         max_value=-114.13, # California's approximate max longitude
-        value=-122.0,
+        value=-122.0, # This default will be caught by the new checks if not adjusted
         step=0.01
     )
 
-# --- YOUR REQUESTED LOCATION CHECK ---
-# This will stop the app if the coordinates are outside the specified rectangle.
+# --- Your Requested Basic Bounding Box Check (kept as a first line of defense) ---
+# This catches values outside the very broadest rectangle, including values that might
+# bypass the slider's explicit min/max if somehow manually entered or defaulted.
 if not (32.54 <= latitude <= 42.01 and -124.48 <= longitude <= -114.13):
-    st.error("❌ Selected coordinates are outside of California.")
+    st.error("❌ The selected coordinates are outside the *general* valid California range. Please adjust the sliders to stay within California to proceed.")
     st.stop()
 
 # --- Remaining inputs in original columns ---
@@ -92,54 +93,84 @@ with col2:
 
 # --- Predict Button ---
 if st.button("Predict Median House Value"):
-    # Step 1: Form raw DataFrame
-    input_data = pd.DataFrame({
-        'longitude': [longitude],
-        'latitude': [latitude],
-        'housing_median_age': [housing_median_age],
-        'total_rooms': [total_rooms],
-        'total_bedrooms': [total_bedrooms],
-        'population': [population],
-        'households': [households],
-        'median_income': [median_income],
-        'ocean_proximity': [ocean_proximity]
-    })
+    # *** CRUCIAL FIX: REFINED GEOGRAPHICAL BOUNDARY CHECK FOR PREDICTION ***
+    # This block *is* the fix for your specific issue where a point is numerically in range
+    # but geographically off the California landmass (e.g., in Nevada, as per your screenshot).
+    # These conditions are heuristics based on the actual shape of California's borders.
+    
+    is_on_ca_land_for_prediction = True # Assume valid until proven otherwise
 
-    # Step 2: Feature Engineering (Ensure this matches your training preprocessing!)
-    input_data['rooms_per_household'] = input_data['total_rooms'] / input_data['households']
-    input_data['bedrooms_per_room'] = input_data['total_bedrooms'] / input_data['total_rooms']
-    # If you had population_per_household in training, add it here:
-    # input_data['population_per_household'] = input_data['population'] / input_data['households']
+    # 1. Check for points clearly in the Pacific Ocean (too far west)
+    if longitude < -124.2: # Roughly west of most of California's coastline
+        st.error("❌ The selected location appears to be in the Pacific Ocean. Please adjust the longitude eastward to select a location on California's landmass.")
+        is_on_ca_land_for_prediction = False
+    
+    # 2. Check for points clearly in Nevada or Arizona (too far east)
+    # These are more nuanced checks based on latitude segments of CA's eastern border.
+    elif longitude > -120.0 and latitude < 34.0: # South-eastern corner (AZ/NV)
+        st.error("❌ The selected location appears to be in Arizona or Nevada. Please adjust the longitude westward to be on California's landmass.")
+        is_on_ca_land_for_prediction = False
+    elif longitude > -120.5 and latitude >= 34.0 and latitude < 38.5: # Mid-eastern border (Nevada, catches (37.0, -122.0))
+        st.error("❌ The selected location appears to be in Nevada. Please adjust the longitude westward to be on California's landmass.")
+        is_on_ca_land_for_prediction = False
+    elif longitude > -120.0 and latitude >= 38.5 and latitude < 42.0: # North-eastern border (Nevada/Oregon)
+        st.error("❌ The selected location appears to be in Nevada or Oregon. Please adjust the longitude westward to be on California's landmass.")
+        is_on_ca_land_for_prediction = False
+    
+    # 3. Add any other specific "off-land" areas you discover during testing.
+    # For instance, if a point in Northern Mexico near the border slipped through.
+
+    if is_on_ca_land_for_prediction:
+        # Step 1: Form raw DataFrame
+        input_data = pd.DataFrame({
+            'longitude': [longitude],
+            'latitude': [latitude],
+            'housing_median_age': [housing_median_age],
+            'total_rooms': [total_rooms],
+            'total_bedrooms': [total_bedrooms],
+            'population': [population],
+            'households': [households],
+            'median_income': [median_income],
+            'ocean_proximity': [ocean_proximity]
+        })
+
+        # Step 2: Feature Engineering (Ensure this matches your training preprocessing!)
+        input_data['rooms_per_household'] = input_data['total_rooms'] / input_data['households']
+        input_data['bedrooms_per_room'] = input_data['total_bedrooms'] / input_data['total_rooms']
+        # If you had population_per_household in training, add it here:
+        # input_data['population_per_household'] = input_data['population'] / input_data['households']
 
 
-    # Step 3: One-Hot Encoding for 'ocean_proximity' (consistent with training)
-    input_data = pd.get_dummies(input_data, columns=['ocean_proximity'], prefix='ocean_proximity')
+        # Step 3: One-Hot Encoding for 'ocean_proximity' (consistent with training)
+        input_data = pd.get_dummies(input_data, columns=['ocean_proximity'], prefix='ocean_proximity')
 
-    # Step 4: Align input to match training features (crucial step!)
-    input_data = input_data.reindex(columns=model_features, fill_value=0)
+        # Step 4: Align input to match training features (crucial step!)
+        input_data = input_data.reindex(columns=model_features, fill_value=0)
 
-    # Step 5: Apply Scaling (CRUCIAL IF MODEL WAS TRAINED ON SCALED DATA)
-    # If you loaded 'scaling_params' or an 'sklearn.preprocessing.StandardScaler' object
-    # you would apply it here using that loaded object. Example:
-    # if scaling_params: # If you loaded a dict of params
-    #    numerical_cols_for_scaling_in_app = [col for col in model_features if not col.startswith('ocean_proximity_')]
-    #    for col in numerical_cols_for_scaling_in_app:
-    #        if col in scaling_params:
-    #            mean_val = scaling_params[col]['mean']
-    #            std_val = scaling_params[col]['std']
-    #            if std_val == 0:
-    #                input_data[col] = 0
-    #            else:
-    #                input_data[col] = (input_data[col] - mean_val) / std_val
-    # elif isinstance(scaler_object, StandardScaler): # If you loaded an sklearn scaler object
-    #    input_data[numerical_cols_for_scaling_in_app] = scaler_object.transform(input_data[numerical_cols_for_scaling_in_app])
-    # else:
-    #    st.warning("Scaling was not applied. Ensure your model was trained on unscaled data or load the scaler.")
+        # Step 5: Apply Scaling (CRUCIAL IF MODEL WAS TRAINED ON SCALED DATA)
+        # If you loaded 'scaling_params' or an 'sklearn.preprocessing.StandardScaler' object
+        # you would apply it here using that loaded object. Example:
+        # if scaling_params: # If you loaded a dict of params
+        #    numerical_cols_for_scaling_in_app = [col for col in model_features if not col.startswith('ocean_proximity_')]
+        #    for col in numerical_cols_for_scaling_in_app:
+        #        if col in scaling_params:
+        #            mean_val = scaling_params[col]['mean']
+        #            std_val = scaling_params[col]['std']
+        #            if std_val == 0:
+        #                input_data[col] = 0
+        #            else:
+        #                input_data[col] = (input_data[col] - mean_val) / std_val
+        # elif isinstance(scaler_object, StandardScaler): # If you loaded an sklearn scaler object
+        #    input_data[numerical_cols_for_scaling_in_app] = scaler_object.transform(input_data[numerical_cols_for_scaling_in_app])
+        # else:
+        #    st.warning("Scaling was not applied. Ensure your model was trained on unscaled data or load the scaler.")
 
 
-    # Step 6: Predict
-    prediction = model.predict(input_data)[0]
-    st.success(f"Predicted Median House Value: ${prediction:,.2f}")
+        # Step 6: Predict
+        prediction = model.predict(input_data)[0]
+        st.success(f"Predicted Median House Value: ${prediction:,.2f}")
+    else:
+        st.warning("Prediction aborted: Please select a location truly within California's landmass for an accurate prediction.")
 
 # --- Optional Styling ---
 st.markdown(
