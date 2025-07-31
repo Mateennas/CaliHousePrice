@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import gdown
 import os
-import streamlit as st
+
 
 # --- Load model and expected features ---
 file_id = "10ne32XEWjXf9SX1zi2q2ic3VIbodZqAN"
