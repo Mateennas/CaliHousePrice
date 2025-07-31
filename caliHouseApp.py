@@ -6,7 +6,7 @@ import gdown
 import os
 
 # --- Load model and expected features ---
-file_id = "1WxEGMMnhVcAFR065XJNPIowo4yXBVXKw"
+file_id = "10ne32XEWjXf9SX1zi2q2ic3VIbodZqAN"
 url = f"https://drive.google.com/uc?id={file_id}"
 model_path = "best_house_price_model.joblib"
 
