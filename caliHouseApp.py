@@ -58,7 +58,7 @@ with loc_col1:
         "Latitude",
         min_value=32.54, # California's approximate min latitude
         max_value=42.01, # California's approximate max latitude
-        value=37.0, # Default value, will now be checked more rigorously
+        value=37.0,
         step=0.01
     )
 with loc_col2:
@@ -66,9 +66,15 @@ with loc_col2:
         "Longitude",
         min_value=-124.48, # California's approximate min longitude
         max_value=-114.13, # California's approximate max longitude
-        value=-122.0, # Default value, will now be checked more rigorously
+        value=-122.0,
         step=0.01
     )
+
+# --- YOUR REQUESTED LOCATION CHECK ---
+# This will stop the app if the coordinates are outside the specified rectangle.
+if not (32.54 <= latitude <= 42.01 and -124.48 <= longitude <= -114.13):
+    st.error("❌ Selected coordinates are outside of California.")
+    st.stop()
 
 # --- Remaining inputs in original columns ---
 col1, col2 = st.columns(2)
@@ -86,82 +92,54 @@ with col2:
 
 # --- Predict Button ---
 if st.button("Predict Median House Value"):
-    # *** REFINED GEOGRAPHICAL BOUNDARY CHECK FOR PREDICTION ***
-    # This set of 'if/elif' conditions attempts to exclude areas that are numerically within
-    # the broader California bounding box but are clearly outside its landmass (e.g., in NV, AZ, or ocean).
-    # These are heuristic and based on common maps of California's irregular borders.
-    
-    is_on_ca_land_for_prediction = True # Assume valid until a check proves otherwise
+    # Step 1: Form raw DataFrame
+    input_data = pd.DataFrame({
+        'longitude': [longitude],
+        'latitude': [latitude],
+        'housing_median_age': [housing_median_age],
+        'total_rooms': [total_rooms],
+        'total_bedrooms': [total_bedrooms],
+        'population': [population],
+        'households': [households],
+        'median_income': [median_income],
+        'ocean_proximity': [ocean_proximity]
+    })
 
-    # Check for points too far East (into Nevada/Arizona) based on latitude segments
-    # The default (37.0, -122.0) from your screenshot is caught by the second condition here.
-    if longitude > -120.0 and latitude < 34.0: # South-eastern corner, often AZ/NV
-        st.error("❌ The selected location appears to be in Arizona or Nevada. Please adjust the longitude westward to be on California's landmass.")
-        is_on_ca_land_for_prediction = False
-    elif longitude > -120.5 and latitude >= 34.0 and latitude < 38.5: # Mid-eastern border, mostly Nevada
-        st.error("❌ The selected location appears to be in Nevada. Please adjust the longitude westward to be on California's landmass.")
-        is_on_ca_land_for_prediction = False
-    elif longitude > -120.0 and latitude >= 38.5 and latitude < 42.0: # North-eastern border, Nevada/Oregon
-        st.error("❌ The selected location appears to be in Nevada or Oregon. Please adjust the longitude westward to be on California's landmass.")
-        is_on_ca_land_for_prediction = False
-    # Check for points too far West (into the Pacific Ocean)
-    elif longitude < -124.2: # West of most of California's coastline
-        st.error("❌ The selected location appears to be in the Pacific Ocean. Please adjust the longitude eastward to select a location on California's landmass.")
-        is_on_ca_land_for_prediction = False
-    # Add more specific checks here if you find other problem areas
-    # For example, extremely northern or southern points within the "box" that aren't CA.
-
-    if is_on_ca_land_for_prediction:
-        # Step 1: Form raw DataFrame
-        input_data = pd.DataFrame({
-            'longitude': [longitude],
-            'latitude': [latitude],
-            'housing_median_age': [housing_median_age],
-            'total_rooms': [total_rooms],
-            'total_bedrooms': [total_bedrooms],
-            'population': [population],
-            'households': [households],
-            'median_income': [median_income],
-            'ocean_proximity': [ocean_proximity]
-        })
-
-        # Step 2: Feature Engineering (Ensure this matches your training preprocessing!)
-        input_data['rooms_per_household'] = input_data['total_rooms'] / input_data['households']
-        input_data['bedrooms_per_room'] = input_data['total_bedrooms'] / input_data['total_rooms']
-        # If you had population_per_household in training, add it here:
-        # input_data['population_per_household'] = input_data['population'] / input_data['households']
+    # Step 2: Feature Engineering (Ensure this matches your training preprocessing!)
+    input_data['rooms_per_household'] = input_data['total_rooms'] / input_data['households']
+    input_data['bedrooms_per_room'] = input_data['total_bedrooms'] / input_data['total_rooms']
+    # If you had population_per_household in training, add it here:
+    # input_data['population_per_household'] = input_data['population'] / input_data['households']
 
 
-        # Step 3: One-Hot Encoding for 'ocean_proximity' (consistent with training)
-        input_data = pd.get_dummies(input_data, columns=['ocean_proximity'], prefix='ocean_proximity')
+    # Step 3: One-Hot Encoding for 'ocean_proximity' (consistent with training)
+    input_data = pd.get_dummies(input_data, columns=['ocean_proximity'], prefix='ocean_proximity')
 
-        # Step 4: Align input to match training features (crucial step!)
-        input_data = input_data.reindex(columns=model_features, fill_value=0)
+    # Step 4: Align input to match training features (crucial step!)
+    input_data = input_data.reindex(columns=model_features, fill_value=0)
 
-        # Step 5: Apply Scaling (CRUCIAL IF MODEL WAS TRAINED ON SCALED DATA)
-        # If you loaded 'scaling_params' or an 'sklearn.preprocessing.StandardScaler' object
-        # you would apply it here using that loaded object. Example:
-        # if scaling_params: # If you loaded a dict of params
-        #    numerical_cols_for_scaling_in_app = [col for col in model_features if not col.startswith('ocean_proximity_')]
-        #    for col in numerical_cols_for_scaling_in_app:
-        #        if col in scaling_params:
-        #            mean_val = scaling_params[col]['mean']
-        #            std_val = scaling_params[col]['std']
-        #            if std_val == 0:
-        #                input_data[col] = 0
-        #            else:
-        #                input_data[col] = (input_data[col] - mean_val) / std_val
-        # elif isinstance(scaler_object, StandardScaler): # If you loaded an sklearn scaler object
-        #    input_data[numerical_cols_for_scaling_in_app] = scaler_object.transform(input_data[numerical_cols_for_scaling_in_app])
-        # else:
-        #    st.warning("Scaling was not applied. Ensure your model was trained on unscaled data or load the scaler.")
+    # Step 5: Apply Scaling (CRUCIAL IF MODEL WAS TRAINED ON SCALED DATA)
+    # If you loaded 'scaling_params' or an 'sklearn.preprocessing.StandardScaler' object
+    # you would apply it here using that loaded object. Example:
+    # if scaling_params: # If you loaded a dict of params
+    #    numerical_cols_for_scaling_in_app = [col for col in model_features if not col.startswith('ocean_proximity_')]
+    #    for col in numerical_cols_for_scaling_in_app:
+    #        if col in scaling_params:
+    #            mean_val = scaling_params[col]['mean']
+    #            std_val = scaling_params[col]['std']
+    #            if std_val == 0:
+    #                input_data[col] = 0
+    #            else:
+    #                input_data[col] = (input_data[col] - mean_val) / std_val
+    # elif isinstance(scaler_object, StandardScaler): # If you loaded an sklearn scaler object
+    #    input_data[numerical_cols_for_scaling_in_app] = scaler_object.transform(input_data[numerical_cols_for_scaling_in_app])
+    # else:
+    #    st.warning("Scaling was not applied. Ensure your model was trained on unscaled data or load the scaler.")
 
 
-        # Step 6: Predict
-        prediction = model.predict(input_data)[0]
-        st.success(f"Predicted Median House Value: ${prediction:,.2f}")
-    else:
-        st.warning("Prediction aborted: Please select a location truly within California's landmass for an accurate prediction.")
+    # Step 6: Predict
+    prediction = model.predict(input_data)[0]
+    st.success(f"Predicted Median House Value: ${prediction:,.2f}")
 
 # --- Optional Styling ---
 st.markdown(
@@ -202,10 +180,4 @@ st.map(map_df, zoom=6)
 # --- Optional Info/Image Display ---
 st.subheader("📍 Location Info (Simplified Demo)")
 if -123 < longitude < -122 and 37 < latitude < 38:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/1/12/San_Francisco_from_Twin_Peaks_November_2019_panorama_2.jpg", width=600)
-    st.markdown("**You are likely viewing the San Francisco Bay Area!**")
-elif -119 < longitude < -117 and 33 < latitude < 35:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/8/89/Los_Angeles_Skyline_at_Night.jpg", width=600)
-    st.markdown("**This looks like the Los Angeles region.**")
-else:
-    st.markdown("🌎 This point is somewhere else in California.")
+    st.image("
