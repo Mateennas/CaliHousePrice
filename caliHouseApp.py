@@ -4,7 +4,20 @@ import pandas as pd
 import numpy as np
 
 # --- Load model and expected features ---
-model = joblib.load('best_house_price_model.joblib')
+file_id = "1WxEGMMnhVcAFR065XJNPIowo4yXBVXKw"
+url = f"https://drive.google.com/uc?id={file_id}"
+model_path = "best_house_price_model.joblib"
+
+# Download the model if needed
+if not os.path.exists(model_path):
+    gdown.download(url, model_path, quiet=False)
+
+# Load model and expected columns with caching
+@st.cache_resource
+def load_model():
+    return joblib.load(model_path)
+
+model = load_model()
 model_features = joblib.load('model_features.joblib')  # feature names used during training
 
 # --- Streamlit app title ---
