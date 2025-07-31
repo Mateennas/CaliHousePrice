@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import gdown
 import os
+import streamlit as st
 
 # --- Load model and expected features ---
 file_id = "10ne32XEWjXf9SX1zi2q2ic3VIbodZqAN"
@@ -34,8 +35,14 @@ st.header("Enter Block Group Details:")
 col1, col2 = st.columns(2)
 
 with col1:
-    longitude = st.slider("Longitude", -124.35, -114.31, -122.0)
-    latitude = st.slider("Latitude", 32.54, 41.95, 37.0)
+    lat_lon = st.slider(
+    "Select (Latitude, Longitude)",
+    min_value=(32.54, -124.48),
+    max_value=(42.01, -114.13),
+    value=(37.0, -122.0),
+    step=(0.01, 0.01)
+    )
+    latitude, longitude = lat_lon
     housing_median_age = st.slider("Housing Median Age", 1, 52, 30)
     median_income = st.slider("Median Income (in tens of thousands)", 0.5, 15.0, 5.0, step=0.1)
 
