@@ -180,4 +180,10 @@ st.map(map_df, zoom=6)
 # --- Optional Info/Image Display ---
 st.subheader("📍 Location Info (Simplified Demo)")
 if -123 < longitude < -122 and 37 < latitude < 38:
-    st.image("
+    st.image("https://upload.wikimedia.org/wikipedia/commons/1/12/San_Francisco_from_Twin_Peaks_November_2019_panorama_2.jpg", width=600)
+    st.markdown("**You are likely viewing the San Francisco Bay Area!**")
+elif -119 < longitude < -117 and 33 < latitude < 35:
+    st.image("https://upload.wikimedia.org/wikipedia/commons/8/89/Los_Angeles_Skyline_at_Night.jpg", width=600)
+    st.markdown("**This looks like the Los Angeles region.**")
+else:
+    st.markdown("🌎 This point is somewhere else in California.")
