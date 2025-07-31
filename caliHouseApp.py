@@ -105,8 +105,8 @@ st.title("California Housing Location Viewer")
 st.markdown("### 🎯 Choose Coordinates")
 
 # --- User Inputs ---
-longitude = st.slider("Longitude", -124.35, -114.31, -122.0, step=0.01)
-latitude = st.slider("Latitude", 32.54, 41.95, 37.0, step=0.01)
+latitude = st.slider("Latitude", 30.0, 45.0, 37.0, step=0.01)
+longitude = st.slider("Longitude", -130.0, -110.0, -122.0, step=0.01)
 
 if not (32.54 <= latitude <= 42.01 and -124.48 <= longitude <= -114.13):
     st.error("❌ Selected coordinates are outside of California.")
