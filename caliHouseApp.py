@@ -2,6 +2,8 @@ import streamlit as st
 import joblib
 import pandas as pd
 import numpy as np
+import gdown
+import os
 
 # --- Load model and expected features ---
 file_id = "1WxEGMMnhVcAFR065XJNPIowo4yXBVXKw"
