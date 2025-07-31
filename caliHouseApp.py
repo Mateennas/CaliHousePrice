@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import gdown
 import os
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon # <--- NEW IMPORT
 
 # --- Page Configuration (MUST be at the very top of your script) ---
 st.set_page_config(page_title="California Housing Price Prediction", layout="centered")
@@ -28,20 +28,13 @@ if not os.path.exists(model_path):
 @st.cache_resource
 def load_resources():
     model = joblib.load(model_path)
-    # If your model is a complete pipeline, 'model_features.joblib' might not be strictly needed for prediction,
-    # as the pipeline internally manages feature names and order.
-    # However, it could still be useful for validation or if your pipeline expects a specific DataFrame structure.
-    # I'm keeping the loading here but acknowledging its potential redundancy for a truly end-to-end pipeline.
-    try:
-        model_features = joblib.load('model_features.joblib')
-    except FileNotFoundError:
-        st.warning("model_features.joblib not found. Ensure your model is a complete pipeline that handles all feature transformations and ordering internally.")
-        model_features = None # Set to None or handle as appropriate for your specific model
+    model_features = joblib.load('model_features.joblib') # feature names used during training
     return model, model_features
 
 model, model_features = load_resources()
 
 # --- Define California Polygon for Precise Check ---
+# <--- NEW CODE BLOCK START ---
 # This is a VERY simplified, hand-drawn polygon for demonstration.
 # For high accuracy, you would load a proper GeoJSON or shapefile.
 # Coordinates are (longitude, latitude)
@@ -54,6 +47,7 @@ california_border_coords = [
     (-124.48, 32.53)  # Closing the loop to the start point
 ]
 california_polygon = Polygon(california_border_coords)
+# <--- NEW CODE BLOCK END ---
 
 
 # --- Streamlit app title ---
@@ -85,6 +79,13 @@ with loc_col2:
         step=0.01
     )
 
+# --- Basic Bounding Box Check (kept as a first line of defense) ---
+# This will stop the app if the coordinates are outside the specified rectangle.
+# It's less precise than the shapely check, but acts as a quick filter.
+if not (32.54 <= latitude <= 42.01 and -124.48 <= longitude <= -114.13):
+    st.error("❌ Selected coordinates are outside the broad California bounding box. Please adjust sliders.")
+    st.stop()
+
 # --- Remaining inputs in original columns ---
 col1, col2 = st.columns(2)
 
@@ -101,36 +102,46 @@ with col2:
 
 # --- Predict Button ---
 if st.button("Predict Median House Value"):
-    # *** MAIN FIX: DATA PREPARATION SIMPLIFIED TO ONLY RAW INPUTS ***
+    # *** MAIN FIX: SHAPELY POINT-IN-POLYGON CHECK ***
     # <--- MODIFIED CODE BLOCK START ---
-    # Create the DataFrame with only the RAW input features as received from the user.
-    # Assumes the loaded 'model' is a scikit-learn Pipeline that internally handles
-    # feature engineering (e.g., rooms_per_household, bedrooms_per_room),
-    # one-hot encoding for 'ocean_proximity', feature alignment, and scaling.
-    input_df_raw = pd.DataFrame({
-        'longitude': [longitude],
-        'latitude': [latitude],
-        'housing_median_age': [housing_median_age],
-        'total_rooms': [total_rooms],
-        'total_bedrooms': [total_bedrooms],
-        'population': [population],
-        'households': [households],
-        'median_income': [median_income],
-        'ocean_proximity': [ocean_proximity]
-    })
-    # <--- MODIFIED CODE BLOCK END ---
-
-    # *** GEOGRAPHICAL CHECK BEFORE PREDICTION ***
     user_point = Point(longitude, latitude) # Create a shapely Point from user input (lon, lat)
 
     if california_polygon.contains(user_point):
         # The point is within the (simplified) California landmass, proceed with prediction
-        # Step: Predict using the loaded model (pipeline) on the raw input DataFrame.
-        prediction = model.predict(input_df_raw)[0]
+        # Step 1: Form raw DataFrame
+        input_data = pd.DataFrame({
+            'longitude': [longitude],
+            'latitude': [latitude],
+            'housing_median_age': [housing_median_age],
+            'total_rooms': [total_rooms],
+            'total_bedrooms': [total_bedrooms],
+            'population': [population],
+            'households': [households],
+            'median_income': [median_income],
+            'ocean_proximity': [ocean_proximity]
+        })
+
+        # Step 2: Feature Engineering (Ensure this matches your training preprocessing!)
+        input_data['rooms_per_household'] = input_data['total_rooms'] / input_data['households']
+        input_data['bedrooms_per_room'] = input_data['total_bedrooms'] / input_data['total_rooms']
+
+        # Step 3: One-Hot Encoding for 'ocean_proximity' (consistent with training)
+        input_data = pd.get_dummies(input_data, columns=['ocean_proximity'], prefix='ocean_proximity')
+
+        # Step 4: Align input to match training features (crucial step!)
+        input_data = input_data.reindex(columns=model_features, fill_value=0)
+
+        # Step 5: Apply Scaling (if applicable)
+        # This section is commented out as per your original code, but remember its importance
+        # if your model was trained on scaled data.
+
+        # Step 6: Predict
+        prediction = model.predict(input_data)[0]
         st.success(f"Predicted Median House Value: ${prediction:,.2f}")
     else:
         # The point is outside the (simplified) California landmass
         st.error("❌ Prediction aborted: The selected location is outside California's landmass. Please select a point within the state's boundaries for an accurate prediction.")
+    # <--- MODIFIED CODE BLOCK END ---
 
 # --- Optional Styling ---
 st.markdown(
