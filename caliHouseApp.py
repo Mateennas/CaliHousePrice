@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import gdown
 import os
+from shapely.geometry import Point, Polygon
 
 # --- Page Configuration (MUST be at the very top of your script) ---
 st.set_page_config(page_title="California Housing Price Prediction", layout="centered")
@@ -27,19 +28,33 @@ if not os.path.exists(model_path):
 @st.cache_resource
 def load_resources():
     model = joblib.load(model_path)
-    model_features = joblib.load('model_features.joblib') # feature names used during training
-    # IMPORTANT: If your model was trained on SCALED data, you MUST load your scaler here too!
-    # For example:
-    # if os.path.exists('scaling_params.joblib'):
-    #     scaling_params = joblib.load('scaling_params.joblib')
-    # else:
-    #     st.warning("Scaling parameters not found. Predictions might be inaccurate if model was trained on scaled data.")
-    #     scaling_params = None # Handle this case as needed
-    # return model, model_features, scaling_params # If you also load scaling_params
+    # If your model is a complete pipeline, 'model_features.joblib' might not be strictly needed for prediction,
+    # as the pipeline internally manages feature names and order.
+    # However, it could still be useful for validation or if your pipeline expects a specific DataFrame structure.
+    # I'm keeping the loading here but acknowledging its potential redundancy for a truly end-to-end pipeline.
+    try:
+        model_features = joblib.load('model_features.joblib')
+    except FileNotFoundError:
+        st.warning("model_features.joblib not found. Ensure your model is a complete pipeline that handles all feature transformations and ordering internally.")
+        model_features = None # Set to None or handle as appropriate for your specific model
     return model, model_features
 
 model, model_features = load_resources()
-# model, model_features, scaling_params = load_resources() # If you load scaling_params
+
+# --- Define California Polygon for Precise Check ---
+# This is a VERY simplified, hand-drawn polygon for demonstration.
+# For high accuracy, you would load a proper GeoJSON or shapefile.
+# Coordinates are (longitude, latitude)
+california_border_coords = [
+    (-124.48, 32.53), # South-west (near San Diego / border)
+    (-117.0, 32.53),  # South-east (near Calexico / border)
+    (-114.13, 34.99), # East-central (near Needles, border with AZ)
+    (-119.99, 41.99), # North-east (near Lake Tahoe, border with NV)
+    (-124.2, 42.01),  # North-west (near Crescent City / Oregon border)
+    (-124.48, 32.53)  # Closing the loop to the start point
+]
+california_polygon = Polygon(california_border_coords)
+
 
 # --- Streamlit app title ---
 st.title('🏡 California Housing Price Prediction')
@@ -58,24 +73,17 @@ with loc_col1:
         "Latitude",
         min_value=32.54, # California's approximate min latitude
         max_value=42.01, # California's approximate max latitude
-        value=37.0, # This default will be caught by the new checks if not adjusted
+        value=37.0,
         step=0.01
     )
 with loc_col2:
     longitude = st.slider(
         "Longitude",
         min_value=-124.48, # California's approximate min longitude
-        max_value=-114.13, # California's approximate max longitude
-        value=-122.0, # This default will be caught by the new checks if not adjusted
+        max_value= -114.13, # California's approximate max longitude
+        value=-122.0,
         step=0.01
     )
-
-# --- Your Requested Basic Bounding Box Check (kept as a first line of defense) ---
-# This catches values outside the very broadest rectangle, including values that might
-# bypass the slider's explicit min/max if somehow manually entered or defaulted.
-if not (32.54 <= latitude <= 42.01 and -124.48 <= longitude <= -114.13):
-    st.error("❌ The selected coordinates are outside the *general* valid California range. Please adjust the sliders to stay within California to proceed.")
-    st.stop()
 
 # --- Remaining inputs in original columns ---
 col1, col2 = st.columns(2)
@@ -93,84 +101,36 @@ with col2:
 
 # --- Predict Button ---
 if st.button("Predict Median House Value"):
-    # *** CRUCIAL FIX: REFINED GEOGRAPHICAL BOUNDARY CHECK FOR PREDICTION ***
-    # This block *is* the fix for your specific issue where a point is numerically in range
-    # but geographically off the California landmass (e.g., in Nevada, as per your screenshot).
-    # These conditions are heuristics based on the actual shape of California's borders.
-    
-    is_on_ca_land_for_prediction = True # Assume valid until proven otherwise
+    # *** MAIN FIX: DATA PREPARATION SIMPLIFIED TO ONLY RAW INPUTS ***
+    # <--- MODIFIED CODE BLOCK START ---
+    # Create the DataFrame with only the RAW input features as received from the user.
+    # Assumes the loaded 'model' is a scikit-learn Pipeline that internally handles
+    # feature engineering (e.g., rooms_per_household, bedrooms_per_room),
+    # one-hot encoding for 'ocean_proximity', feature alignment, and scaling.
+    input_df_raw = pd.DataFrame({
+        'longitude': [longitude],
+        'latitude': [latitude],
+        'housing_median_age': [housing_median_age],
+        'total_rooms': [total_rooms],
+        'total_bedrooms': [total_bedrooms],
+        'population': [population],
+        'households': [households],
+        'median_income': [median_income],
+        'ocean_proximity': [ocean_proximity]
+    })
+    # <--- MODIFIED CODE BLOCK END ---
 
-    # 1. Check for points clearly in the Pacific Ocean (too far west)
-    if longitude < -124.2: # Roughly west of most of California's coastline
-        st.error("❌ The selected location appears to be in the Pacific Ocean. Please adjust the longitude eastward to select a location on California's landmass.")
-        is_on_ca_land_for_prediction = False
-    
-    # 2. Check for points clearly in Nevada or Arizona (too far east)
-    # These are more nuanced checks based on latitude segments of CA's eastern border.
-    elif longitude > -120.0 and latitude < 34.0: # South-eastern corner (AZ/NV)
-        st.error("❌ The selected location appears to be in Arizona or Nevada. Please adjust the longitude westward to be on California's landmass.")
-        is_on_ca_land_for_prediction = False
-    elif longitude > -120.5 and latitude >= 34.0 and latitude < 38.5: # Mid-eastern border (Nevada, catches (37.0, -122.0))
-        st.error("❌ The selected location appears to be in Nevada. Please adjust the longitude westward to be on California's landmass.")
-        is_on_ca_land_for_prediction = False
-    elif longitude > -120.0 and latitude >= 38.5 and latitude < 42.0: # North-eastern border (Nevada/Oregon)
-        st.error("❌ The selected location appears to be in Nevada or Oregon. Please adjust the longitude westward to be on California's landmass.")
-        is_on_ca_land_for_prediction = False
-    
-    # 3. Add any other specific "off-land" areas you discover during testing.
-    # For instance, if a point in Northern Mexico near the border slipped through.
+    # *** GEOGRAPHICAL CHECK BEFORE PREDICTION ***
+    user_point = Point(longitude, latitude) # Create a shapely Point from user input (lon, lat)
 
-    if is_on_ca_land_for_prediction:
-        # Step 1: Form raw DataFrame
-        input_data = pd.DataFrame({
-            'longitude': [longitude],
-            'latitude': [latitude],
-            'housing_median_age': [housing_median_age],
-            'total_rooms': [total_rooms],
-            'total_bedrooms': [total_bedrooms],
-            'population': [population],
-            'households': [households],
-            'median_income': [median_income],
-            'ocean_proximity': [ocean_proximity]
-        })
-
-        # Step 2: Feature Engineering (Ensure this matches your training preprocessing!)
-        input_data['rooms_per_household'] = input_data['total_rooms'] / input_data['households']
-        input_data['bedrooms_per_room'] = input_data['total_bedrooms'] / input_data['total_rooms']
-        # If you had population_per_household in training, add it here:
-        # input_data['population_per_household'] = input_data['population'] / input_data['households']
-
-
-        # Step 3: One-Hot Encoding for 'ocean_proximity' (consistent with training)
-        input_data = pd.get_dummies(input_data, columns=['ocean_proximity'], prefix='ocean_proximity')
-
-        # Step 4: Align input to match training features (crucial step!)
-        input_data = input_data.reindex(columns=model_features, fill_value=0)
-
-        # Step 5: Apply Scaling (CRUCIAL IF MODEL WAS TRAINED ON SCALED DATA)
-        # If you loaded 'scaling_params' or an 'sklearn.preprocessing.StandardScaler' object
-        # you would apply it here using that loaded object. Example:
-        # if scaling_params: # If you loaded a dict of params
-        #    numerical_cols_for_scaling_in_app = [col for col in model_features if not col.startswith('ocean_proximity_')]
-        #    for col in numerical_cols_for_scaling_in_app:
-        #        if col in scaling_params:
-        #            mean_val = scaling_params[col]['mean']
-        #            std_val = scaling_params[col]['std']
-        #            if std_val == 0:
-        #                input_data[col] = 0
-        #            else:
-        #                input_data[col] = (input_data[col] - mean_val) / std_val
-        # elif isinstance(scaler_object, StandardScaler): # If you loaded an sklearn scaler object
-        #    input_data[numerical_cols_for_scaling_in_app] = scaler_object.transform(input_data[numerical_cols_for_scaling_in_app])
-        # else:
-        #    st.warning("Scaling was not applied. Ensure your model was trained on unscaled data or load the scaler.")
-
-
-        # Step 6: Predict
-        prediction = model.predict(input_data)[0]
+    if california_polygon.contains(user_point):
+        # The point is within the (simplified) California landmass, proceed with prediction
+        # Step: Predict using the loaded model (pipeline) on the raw input DataFrame.
+        prediction = model.predict(input_df_raw)[0]
         st.success(f"Predicted Median House Value: ${prediction:,.2f}")
     else:
-        st.warning("Prediction aborted: Please select a location truly within California's landmass for an accurate prediction.")
+        # The point is outside the (simplified) California landmass
+        st.error("❌ Prediction aborted: The selected location is outside California's landmass. Please select a point within the state's boundaries for an accurate prediction.")
 
 # --- Optional Styling ---
 st.markdown(
