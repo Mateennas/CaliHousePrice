@@ -58,7 +58,7 @@ with loc_col1:
         "Latitude",
         min_value=32.54, # California's approximate min latitude
         max_value=42.01, # California's approximate max latitude
-        value=37.0,
+        value=37.0, # Default value, as shown in your screenshot, is currently in Nevada
         step=0.01
     )
 with loc_col2:
@@ -66,12 +66,13 @@ with loc_col2:
         "Longitude",
         min_value=-124.48, # California's approximate min longitude
         max_value=-114.13, # California's approximate max longitude
-        value=-122.0,
+        value=-122.0, # Default value, as shown in your screenshot, is currently in Nevada
         step=0.01
     )
 
-# *** IMMEDIATE CHECK FOR BASIC CA BOUNDARIES - This primarily prevents extreme out-of-bounds inputs ***
-# The screenshot shows the default value is within these bounds, but lands in NV.
+# *** IMMEDIATE CHECK FOR BASIC CA BOUNDARIES ***
+# This initial check prevents extreme values outside the general bounding box.
+# As your screenshot shows, (37.0, -122.0) is within these bounds but lands in Nevada.
 # So, while this check is important, it alone isn't sufficient for precise landmass.
 if not (32.54 <= latitude <= 42.01 and -124.48 <= longitude <= -114.13):
     st.error("❌ The selected coordinates are outside the *general* valid California range. Please adjust the sliders to stay within California to proceed.")
@@ -93,106 +94,35 @@ with col2:
 
 # --- Predict Button ---
 if st.button("Predict Median House Value"):
-    # *** CRUCIAL NEW CHECK: REFINE GEOGRAPHICAL BOUNDARIES FOR PREDICTION ***
-    # This is an *additional* check for landmass within the broader bounding box.
-    # These are slightly tighter, more realistic bounds to exclude parts of NV/AZ/Ocean
-    # Adjust these specific numbers if you find better approximations for CA's landmass.
-    # The image you provided shows (37.0, -122.0) is in Nevada. Let's adjust the effective prediction boundary.
-    is_in_california_land = (
-        (32.54 <= latitude <= 42.01) and  # General Latitude range
-        (-124.48 <= longitude <= -114.13) and # General Longitude range
-        # Exclude specific regions that are within the box but not CA land (e.g., parts of Nevada, Arizona, ocean)
-        # These are highly approximate and might still let some non-CA points through or exclude some CA points.
-        # A true solution requires geographical shapes (polygons).
-        not (longitude > -120.0 and latitude < 35.0) and # Excludes southern Nevada/Arizona parts of the box
-        not (longitude > -118.0 and latitude > 40.0) # Excludes northern Nevada parts of the box
-        # Add more 'not' conditions for specific corners if needed based on testing
-    )
-
-    # Let's use a simpler, more common approximate bounding box for CA landmass for prediction.
-    # This still won't be perfect, but it's better than the full rectangular bbox.
-    # The point (37.0, -122.0) from your screenshot is in Nevada (East of CA's main landmass at that latitude).
-    # CA's eastern border (longitude) generally trends from approx -120 to -114.
-    # Let's make the prediction stricter.
+    # *** CRUCIAL NEW CHECK FOR PRECISE CA LANDMASS ***
+    # This is a more refined check to prevent predictions for points clearly outside California's
+    # *landmass*, even if they fall within the broader rectangular coordinate range.
+    # The default (37.0, -122.0) from your screenshot is in Nevada. California's eastern border
+    # at latitude 37.0 is roughly around longitude -120.0 to -121.0.
     
-    # A more common, tighter approximation for CA landmass (still rectangular)
-    CA_LAT_MIN, CA_LAT_MAX = 32.54, 42.01 # Keep the original slider bounds for general range
-    CA_LON_MIN, CA_LON_MAX = -124.48, -114.13
+    is_in_ca_land_for_prediction = True # Assume valid until specific check fails
 
-    # For a tighter *landmass* check, we can define a slightly narrower box for prediction
-    # These are still rough, but aim to exclude clear non-CA land based on common maps.
-    PREDICT_CA_LON_WEST = -124.48 # Max west (ocean)
-    PREDICT_CA_LON_EAST = -114.13 # Max east (NV/AZ border)
-    PREDICT_CA_LAT_SOUTH = 32.54 # Max south (Mexico border)
-    PREDICT_CA_LAT_NORTH = 42.01 # Max north (Oregon border)
-
-    # Refine the longitude boundary for prediction to try and cut out Nevada
-    # This is an attempt at a simple "polygon-like" check with rectangles.
-    # At latitude ~37, -122 is clearly east of CA. CA's eastern border around that latitude is closer to -120.
-    
-    # Simple check for landmass, still not perfect but better than just outer bbox.
-    # This requires looking at a map and finding approximate internal bounding box segments.
-    is_in_california_for_prediction = (
-        (latitude >= 32.54 and latitude <= 42.01) and # Broad lat range
-        (longitude >= -124.48 and longitude <= -114.13) and # Broad lon range
-        # Additional approximations to cut out more obvious non-CA areas within the general bbox
-        # This is a manual heuristic based on the shape of CA's eastern border.
-        not (longitude > -120.0 and latitude < 34.0) and # Excludes a chunk of AZ/NV south
-        not (longitude > -121.0 and latitude >= 34.0 and latitude < 38.0) and # Excludes more NV in central CA lat
-        not (longitude > -120.0 and latitude >= 38.0) # Excludes more NV north
-    )
-    
-    # Let's simplify this with a more robust message and rely on the initial strict stop.
-    # The `st.map` function drawing a dot in Nevada is the visual confirmation of the problem.
-    # To *truly* fix this for prediction without complex GIS libraries, we must prevent the prediction.
-
-    # Re-checking the provided image, the point (37.0, -122.0) is clearly in Nevada.
-    # The eastern border of California is roughly at longitude -120.
-    # So, for 37.0 latitude, -122.0 is too far east.
-
-    # Let's make the prediction check explicitly strict based on a tighter understanding of CA's longitude.
-    # This is the most practical "minimal change" to ensure predictions are *on CA land*.
-    # This will prevent prediction if the marker is in Nevada, Arizona, or too far into the Pacific.
-    
-    # Using a slightly refined *prediction* bounding box, which is often done heuristically.
-    # These are more typical coordinates for California's landmass.
-    PRED_LAT_MIN, PRED_LAT_MAX = 32.54, 42.01 # Keep broad latitude range
-    PRED_LON_MIN, PRED_LON_MAX = -124.7, -114.1 # Extend west slightly for coast, keep east tight
-
-    # Manual polygon approximation (very rough but better than a single rect)
-    is_on_ca_land_for_prediction = (
-        (latitude >= PRED_LAT_MIN and latitude <= PRED_LAT_MAX) and
-        (longitude >= PRED_LON_MIN and longitude <= PRED_LON_MAX) and
-        # More specific exclusion for eastern border to cut out NV/AZ based on common CA shape
-        not (longitude > -119.9 and latitude < 35.0) and # Cut out part of AZ/NV in SE
-        not (longitude > -120.0 and latitude >= 35.0 and latitude < 39.0) and # Cut out central NV
-        not (longitude > -120.0 and latitude >= 39.0 and latitude < 42.0) # Cut out northern NV
-    )
-    
-    # For the default (37.0, -122.0) to be in NV, the -122.0 longitude is the key.
-    # CA's actual landmass rarely extends that far east at 37 degrees latitude.
-    # The eastern border of CA varies, but generally ranges from ~-120 (north) to ~-114 (south).
-    # So a point like (37.0, -122.0) is indeed outside the landmass.
-
-    # Let's use a simpler, single check inside the button for prediction validation.
-    # This is the most effective "minimal change" to prevent a prediction.
-
-    # We can add a simple condition to check if the longitude is too far east for central CA.
-    # (37.0, -122.0) is what's causing the problem.
-    # At lat 37, California's eastern border is roughly around -120.
-    is_in_ca_land_for_prediction = True # Assume true unless proven false by more precise check
-    if (longitude > -120.0 and latitude > 34.0 and latitude < 40.0): # This is a broad central region
-        st.error("❌ The selected location appears to be outside California's landmass. Please adjust the longitude westward for more accurate predictions within California.")
-        is_in_ca_land_for_prediction = False # Mark as outside
-    elif (longitude < -124.0): # Too far west, likely ocean
+    # Check for points too far east (e.g., in Nevada/Arizona)
+    # These are heuristic approximations of CA's eastern border segments.
+    if (longitude > -120.0 and latitude < 34.0): # For lower latitudes, east of -120
+        st.error("❌ The selected location appears to be in Arizona or Nevada. Please adjust the longitude westward to be on California's landmass.")
+        is_in_ca_land_for_prediction = False
+    elif (longitude > -120.5 and latitude >= 34.0 and latitude < 38.0): # For mid-latitudes, slightly tighter east border
+        st.error("❌ The selected location appears to be in Nevada. Please adjust the longitude westward to be on California's landmass.")
+        is_in_ca_land_for_prediction = False
+    elif (longitude > -120.0 and latitude >= 38.0): # For higher latitudes, east of -120
+        st.error("❌ The selected location appears to be in Nevada or Oregon. Please adjust the longitude westward to be on California's landmass.")
+        is_in_ca_land_for_prediction = False
+    # Check for points too far west (e.g., in the Pacific Ocean)
+    elif (longitude < -124.2): # Roughly west of California's coastline
         st.error("❌ The selected location appears to be in the Pacific Ocean. Please adjust the longitude eastward to select a location on California's landmass.")
         is_in_ca_land_for_prediction = False
 
     if is_in_ca_land_for_prediction:
         # Step 1: Form raw DataFrame
         input_data = pd.DataFrame({
-            'longitude': [longitude], # Use the corrected longitude variable
-            'latitude': [latitude],   # Use the corrected latitude variable
+            'longitude': [longitude],
+            'latitude': [latitude],
             'housing_median_age': [housing_median_age],
             'total_rooms': [total_rooms],
             'total_bedrooms': [total_bedrooms],
@@ -265,11 +195,11 @@ st.markdown(
 )
 
 # --- California Housing Location Viewer ---
-st.title("California Housing Location Viewer") # This title is fine as a separate section.
-st.markdown("### 🎯 Chosen Coordinates") # Refers to the coordinates selected above
+st.title("California Housing Location Viewer")
+st.markdown("### 🎯 Chosen Coordinates")
 
 # --- Create DataFrame for Map ---
-# Uses the 'latitude' and 'longitude' variables obtained from the *new* separate sliders
+# Uses the 'latitude' and 'longitude' variables obtained from the separate sliders
 map_df = pd.DataFrame({'lat': [latitude], 'lon': [longitude]})
 
 # --- Display Map ---
