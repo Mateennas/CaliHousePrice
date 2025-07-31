@@ -109,8 +109,8 @@ latitude = st.slider("Latitude", 30.0, 45.0, 37.0, step=0.01)
 longitude = st.slider("Longitude", -130.0, -110.0, -122.0, step=0.01)
 
 if not (32.54 <= latitude <= 42.01 and -124.48 <= longitude <= -114.13):
-    st.error("❌ Selected coordinates are outside of California.")
-    st.stop()
+    st.error("❌ Coordinates are outside California. Please select a valid location within California.")
+    st.stop()  # Stop the app from running further
 
 # --- Create DataFrame for Map ---
 map_df = pd.DataFrame({'lat': [latitude], 'lon': [longitude]})
